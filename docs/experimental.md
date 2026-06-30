@@ -1,7 +1,3 @@
-โดยรวม **โอเค** แต่ถ้าเป็นเอกสารวิชาการ ผมแนะนำปรับให้กระชับและเป็นทางการขึ้นเล็กน้อย
-
----
-
 ## Experimental Design
 
 This study focuses on the **material part inspection** process, as illustrated in **Figure 1**.
