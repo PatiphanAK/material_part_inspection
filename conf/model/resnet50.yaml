@@ -1,0 +1,8 @@
+# Binary classification head: a SINGLE output logit (no softmax/sigmoid in the model).
+# BCEWithLogitsLoss in src/training/losses.py applies the sigmoid internally.
+name: resnet50
+architecture: resnet50
+pretrained: true # ImageNet weights as init for transfer learning
+freeze_backbone: false # set true to train head only
+in_channels: 3
+num_classes: 1 # binary -> one logit

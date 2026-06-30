@@ -1,0 +1,23 @@
+# Local workstation with 2x RTX 2080. Multi-GPU via PyTorch DDP.
+name: local_rtx2080
+device: "cuda" # resolved to a torch.device by src/utils/device.py
+num_devices: 2 # world_size for DDP (1 on Colab / single-GPU machines)
+use_ddp: true
+
+# Paths resolved per-environment; never hardcoded in src/.
+data_root: "data"
+processed_dir: "data/processed"
+raw_dir: "data/raw"
+outputs_dir: "outputs"
+reports_dir: "reports"
+
+# Pull raw data from lakeFS at the pinned commit before training/eval.
+sync_data: true
+
+# Endpoints pulled from the environment so the same code runs on any machine.
+# Local workstation talks to a locally-hosted lakeFS / MLflow.
+lakefs_endpoint: ${oc.env:LAKEFS_ENDPOINT, http://localhost:8000}
+lakefs_repo: "part-inspection"
+lakefs_branch: "main"
+lakefs_commit: ${oc.env:LAKEFS_COMMIT, main} # exact dataset version logged to MLflow
+mlflow_tracking_uri: ${oc.env:MLFLOW_TRACKING_URI, http://localhost:5000}

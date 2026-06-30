@@ -1,0 +1,11 @@
+# Training hyperparameters. pos_weight up-weights the rare burr class (label=1)
+# to handle the expected ok/burr imbalance; tune it from the data class ratio.
+name: default
+seed: 42
+epochs: 20
+batch_size: 32
+num_workers: 4
+lr: 1.0e-3
+weight_decay: 1.0e-4
+pos_weight: 1.0 # >1 when burr is the minority class (losses.py builds BCEWithLogitsLoss)
+threshold: 0.5 # logit -> {0=ok, 1=burr} at evaluation time

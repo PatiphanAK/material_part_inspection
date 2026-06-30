@@ -1,0 +1,47 @@
+# DVC pipeline DAG. Every stage invokes the single `main.py` entrypoint;
+# `mode=` selects the code path (train -> trainer, evaluate -> evaluate).
+# `${env}` and `${lakefs_commit}` are DVC params (see params.yaml): editing them
+# invalidates the pipeline so the next `dvc repro` re-pulls the right data.
+#
+# NOTE: run with the project venv active (`source .venv/bin/activate` or
+# `uv run dvc repro`) so `python` resolves to the venv with torch/mlflow installed.
+stages:
+  preprocess:
+    cmd: python main.py mode=train env=${env} data=default data.only_preprocess=true env.lakefs_commit=${lakefs_commit}
+    wdir: .
+    deps:
+      - src/data
+      - conf/env/${env}.yaml
+      - conf/data/default.yaml
+    outs:
+      - data/processed
+
+  train:
+    cmd: python main.py mode=train env=${env} model=resnet50 training=default data=default env.lakefs_commit=${lakefs_commit}
+    wdir: .
+    deps:
+      - data/processed
+      - src/training
+      - src/models
+      - conf/training/default.yaml
+      - conf/model/resnet50.yaml
+    outs:
+      - outputs/model.pt
+    metrics:
+      - outputs/metrics.json:
+          cache: false
+
+  evaluate:
+    cmd: python main.py mode=evaluate env=${env} model=resnet50 env.lakefs_commit=${lakefs_commit}
+    wdir: .
+    deps:
+      - data/processed
+      - outputs/model.pt
+      - src/evaluate.py
+    outs:
+      - reports/confusion_matrix.png:
+          cache: false
+      - reports/gradcam:
+          cache: false
+      - reports/drift_report.html:
+          cache: false

@@ -1,0 +1,19 @@
+# Top-level Hydra composition.
+# Every experiment is built by composing small YAML fragments rather than
+# passing scattered CLI flags. Override any group at the CLI, e.g.
+#   python main.py mode=train env=colab model=resnet50 training.epochs=20
+defaults:
+  - mode: train # train | evaluate  -> routes main.py to the right module
+  - env: local_rtx2080
+  - model: resnet50
+  - training: default
+  - data: default
+  - _self_
+
+# Keep Hydra from changing the working directory so the relative `outs:` paths
+# DVC expects (data/processed, outputs/, reports/) stay stable.
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: .

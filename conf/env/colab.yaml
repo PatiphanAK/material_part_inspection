@@ -1,0 +1,21 @@
+# Google Colab runtime. Ephemeral disk -> data is pulled fresh from lakeFS every
+# run; MLflow URI points at a shared remote server so runs land alongside local ones.
+name: colab
+device: "cuda" # single Colab GPU (T4/A100)
+num_devices: 1
+use_ddp: false
+
+# Colab uses /content paths; nothing in src/ hardcodes these.
+data_root: "/content/data"
+processed_dir: "/content/data/processed"
+raw_dir: "/content/data/raw"
+outputs_dir: "/content/outputs"
+reports_dir: "/content/reports"
+
+# Colab cannot see localhost on your workstation -> endpoints must be publicly
+# reachable (or tunneled), set via Colab secrets / environment.
+lakefs_endpoint: ${oc.env:LAKEFS_ENDPOINT}
+lakefs_repo: "part-inspection"
+lakefs_branch: "main"
+lakefs_commit: ${oc.env:LAKEFS_COMMIT, main}
+mlflow_tracking_uri: ${oc.env:MLFLOW_TRACKING_URI}

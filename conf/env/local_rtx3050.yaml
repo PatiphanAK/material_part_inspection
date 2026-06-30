@@ -1,0 +1,21 @@
+# Local workstation with a single RTX 3050. Single-GPU, no DDP.
+name: local_rtx3050
+device: "cuda"
+num_devices: 1
+use_ddp: false
+
+data_root: "data"
+processed_dir: "data/processed"
+raw_dir: "data/raw"
+outputs_dir: "outputs"
+reports_dir: "reports"
+
+# Pull raw data from lakeFS at the pinned commit before training/eval. Set false
+# to use whatever is already on local disk (e.g. cached from a previous run).
+sync_data: true
+
+lakefs_endpoint: ${oc.env:LAKEFS_ENDPOINT, http://localhost:8000}
+lakefs_repo: "part-inspection"
+lakefs_branch: "main"
+lakefs_commit: ${oc.env:LAKEFS_COMMIT, main}
+mlflow_tracking_uri: ${oc.env:MLFLOW_TRACKING_URI, http://localhost:5000}

@@ -1,0 +1,3 @@
+# mode=evaluate -> main.py dispatches to src/evaluate.py:run_evaluation
+# (test metrics + confusion matrix + GradCAM + Evidently drift)
+name: evaluate

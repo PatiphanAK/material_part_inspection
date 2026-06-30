@@ -1,0 +1,43 @@
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# --- Data + artifacts (versioned by lakeFS / DVC, NOT git) ---
+data/raw/
+data/processed/
+outputs/
+reports/
+mlruns/
+mlflow.db
+*.pt
+metrics.json
+
+# --- Hydra output ---
+multirun/
+.hydra/
+main.log
+*.log
+hydra_outputs/
+
+# --- DVC ---
+# dvc.lock SHOULD be committed — it pins exact deps/outs for reproducibility.
+# Only cache/tmp are git-ignored.
+/.dvc/cache
+/.dvc/tmp
+/.dvc/config.local
+# (keep .dvc/config, dvc.yaml, dvc.lock, params.yaml tracked)
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,32 @@
+# Data + augmentation config. The label map is declared ONCE here (ok=0, burr=1);
+# src/data/dataset.py reads it from config so no other module hardcodes labels.
+name: default
+image_size: 224
+# Preprocess-only mode: materialize the deterministic split manifest and exit
+# without training. Used by the DVC `preprocess` stage.
+only_preprocess: false
+label_map:
+  ok: 0
+  burr: 1
+
+split:
+  train: 0.7
+  val: 0.15
+  test: 0.15
+  seed: 42 # deterministic split, paired with training.seed for full reproducibility
+
+# Augmentation applied to the train split ONLY (val/test get deterministic resize+normalize).
+augment:
+  enabled: true
+  strength: 1.0 # scale for flip/rotate/color-jitter magnitudes
+  horizontal_flip: true
+  vertical_flip: false
+  rotation_degrees: 15
+  color_jitter:
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.1
+    hue: 0.0
+normalize:
+  mean: [0.485, 0.456, 0.406] # ImageNet stats, matches pretrained backbone
+  std: [0.229, 0.224, 0.225]

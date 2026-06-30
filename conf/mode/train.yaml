@@ -1,0 +1,2 @@
+# mode=train -> main.py dispatches to src/training/trainer.py:run_training
+name: train

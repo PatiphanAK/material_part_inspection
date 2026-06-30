@@ -11,6 +11,8 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+
   lakefs:
     image: treeverse/lakefs:latest
     container_name: lakefs
@@ -19,6 +21,9 @@ services:
       - postgres
     ports:
       - "8000:8000"
+    # lakeFS runs as a non-root user by default and can't write the root-owned
+    # named volume; run as root so /data (the local blockstore) is writable.
+    user: "0:0"
     environment:
       LAKEFS_DATABASE_TYPE: postgres
       LAKEFS_DATABASE_POSTGRES_CONNECTION_STRING: postgres://lakefs:lakefs@postgres:5432/lakefs?sslmode=disable
@@ -28,6 +33,28 @@ services:
       LAKEFS_LISTEN_ADDRESS: "0.0.0.0:8000"
     volumes:
       - lakefs_data:/data
+
+  # Shared MLflow tracking server. Backed by the same postgres (dedicated `mlflow`
+  # db, created by scripts/init-db.sql) so runs from all workstations + Colab land
+  # in one dashboard. UI at http://localhost:5000
+  mlflow:
+    build: ./docker/mlflow
+    image: part-inspection-mlflow:latest
+    container_name: mlflow
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "5000:5000"
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri postgresql://mlflow:mlflow@postgres:5432/mlflow?sslmode=disable
+      --default-artifact-root mlflow-artifacts:/part-inspection
+      --serve-artifacts --artifacts-destination /mlruns
+    volumes:
+      - ./mlruns:/mlruns
+
 volumes:
   postgres_data:
   lakefs_data:
+  mlflow_data:

@@ -1,0 +1,9 @@
+# DVC params consumed by dvc.yaml's `${...}` interpolation.
+# Editing these values is how you switch environments / dataset versions for a
+# `dvc repro` run. DVC tracks them as dependencies, so changing lakefs_commit
+# correctly invalidates the pipeline and re-pulls the new dataset version.
+#
+#   env:           local_rtx3050 | local_rtx2080 | colab   (which machine)
+#   lakefs_commit: the exact dataset version to train on (a SHA from lakeFS)
+env: local_rtx3050
+lakefs_commit: 7883cc2ffca8c5de3426347e9303d5a724d52c40d6fc340da379651ebaa5cd7b

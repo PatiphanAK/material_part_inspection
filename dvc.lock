@@ -1,0 +1,94 @@
+schema: '2.0'
+stages:
+  preprocess:
+    cmd: python main.py mode=train env=local_rtx3050 data=default 
+      data.only_preprocess=true 
+      env.lakefs_commit=7883cc2ffca8c5de3426347e9303d5a724d52c40d6fc340da379651ebaa5cd7b
+    deps:
+    - path: conf/data/default.yaml
+      hash: md5
+      md5: 7c81bb2a4ccc33277732dd91428ec4b9
+      size: 966
+    - path: conf/env/local_rtx3050.yaml
+      hash: md5
+      md5: 86efd88971341e596cb60a1e52d5c852
+      size: 661
+    - path: src/data
+      hash: md5
+      md5: f35b48622d6f848e5eacde3959c0c727.dir
+      size: 23648
+      nfiles: 6
+    outs:
+    - path: data/processed
+      hash: md5
+      md5: f678272833ee4f3de1c20474fbba00d2.dir
+      size: 741
+      nfiles: 1
+  train:
+    cmd: python main.py mode=train env=local_rtx3050 model=resnet50 
+      training=default data=default 
+      env.lakefs_commit=7883cc2ffca8c5de3426347e9303d5a724d52c40d6fc340da379651ebaa5cd7b
+    deps:
+    - path: conf/model/resnet50.yaml
+      hash: md5
+      md5: 7a9efa771baeb55aceacce2e87f6c673
+      size: 374
+    - path: conf/training/default.yaml
+      hash: md5
+      md5: 41c6a6dfd1db8994b40589d02fc5a9ce
+      size: 405
+    - path: data/processed
+      hash: md5
+      md5: f678272833ee4f3de1c20474fbba00d2.dir
+      size: 741
+      nfiles: 1
+    - path: src/models
+      hash: md5
+      md5: e1642a84faeb68d3da99447749c04708.dir
+      size: 8303
+      nfiles: 4
+    - path: src/training
+      hash: md5
+      md5: 330df5b2ff098ec832ca0f7e6aa97a33.dir
+      size: 19508
+      nfiles: 6
+    outs:
+    - path: outputs/metrics.json
+      hash: md5
+      md5: 2b397f869ee19556d8689b00294c3d66
+      size: 180
+    - path: outputs/model.pt
+      hash: md5
+      md5: 8b57a202a3716a67641415382fa096ac
+      size: 94345011
+  evaluate:
+    cmd: python main.py mode=evaluate env=local_rtx3050 model=resnet50 
+      env.lakefs_commit=7883cc2ffca8c5de3426347e9303d5a724d52c40d6fc340da379651ebaa5cd7b
+    deps:
+    - path: data/processed
+      hash: md5
+      md5: f678272833ee4f3de1c20474fbba00d2.dir
+      size: 741
+      nfiles: 1
+    - path: outputs/model.pt
+      hash: md5
+      md5: 8b57a202a3716a67641415382fa096ac
+      size: 94345011
+    - path: src/evaluate.py
+      hash: md5
+      md5: 3d307cf2819bb32d9bfa1d073b64a579
+      size: 8390
+    outs:
+    - path: reports/confusion_matrix.png
+      hash: md5
+      md5: 0e6d8114caabfadd65f22d16384fbb4a
+      size: 15671
+    - path: reports/drift_report.html
+      hash: md5
+      md5: a189927a5341f95d92e02eb954668251
+      size: 177
+    - path: reports/gradcam
+      hash: md5
+      md5: b1d5cfe1cd229f956ad4a3d7c1a19021.dir
+      size: 1606656
+      nfiles: 8
