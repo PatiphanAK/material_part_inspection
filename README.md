@@ -20,7 +20,7 @@ Device selection, MLflow tracking URI, and lakeFS endpoint are all pulled from H
 
 ---
 
-## 🏗️ Experimental MLOps Stack
+## 🏗️ Experimental Stack
 
 ```
                   +-----------------------------------------+
