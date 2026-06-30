@@ -1,0 +1,64 @@
+services:
+  lakefs:
+    image: "treeverse/lakefs-enterprise:latest"
+    command: "RUN"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - "postgres"
+    environment:
+      - LAKEFS_LISTEN_ADDRESS=0.0.0.0:8000
+      - LAKEFS_LOGGING_LEVEL=DEBUG
+      - LAKEFS_LOGGING_AUDIT_LOG_LEVEL=INFO
+      - LAKEFS_AUTH_ENCRYPT_SECRET_KEY=shared-secret-key
+      - LAKEFS_AUTH_LOGOUT_REDIRECT_URL=${LAKEFS_AUTH_LOGOUT_REDIRECT_URL}
+      - LAKEFS_AUTH_UI_CONFIG_LOGIN_URL=http://localhost:8000/oidc/login
+      - LAKEFS_AUTH_UI_CONFIG_LOGOUT_URL=http://localhost:8000/oidc/logout
+      - LAKEFS_AUTH_UI_CONFIG_RBAC=internal
+      - LAKEFS_AUTH_OIDC_FRIENDLY_NAME_CLAIM_NAME=${LAKEFS_AUTH_OIDC_FRIENDLY_NAME_CLAIM_NAME}
+      - LAKEFS_AUTH_PROVIDERS_OIDC_ENABLED=true
+      - LAKEFS_AUTH_PROVIDERS_OIDC_POST_LOGIN_REDIRECT_URL=http://localhost:8000/
+      - LAKEFS_AUTH_PROVIDERS_OIDC_URL=${LAKEFS_AUTH_PROVIDERS_OIDC_URL}
+      - LAKEFS_AUTH_PROVIDERS_OIDC_CLIENT_ID=${LAKEFS_AUTH_PROVIDERS_OIDC_CLIENT_ID}
+      - LAKEFS_AUTH_PROVIDERS_OIDC_CLIENT_SECRET=${LAKEFS_AUTH_PROVIDERS_OIDC_CLIENT_SECRET}
+      - LAKEFS_AUTH_PROVIDERS_OIDC_CALLBACK_BASE_URL=http://localhost:8000
+      - LAKEFS_AUTH_PROVIDERS_OIDC_LOGOUT_CLIENT_ID_QUERY_PARAMETER=${LAKEFS_AUTH_OIDC_LOGOUT_CLIENT_ID_QUERY_PARAMETER}
+      - LAKEFS_LICENSE_CONTENTS=${LAKEFS_LICENSE_CONTENTS} # for production use, we recommend using LAKEFS_LICENSE_PATH instead
+      - LAKEFS_AUTH_PROVIDERS_OIDC_LOGOUT_CLIENT_ID_QUERY_PARAMETER=${LAKEFS_AUTH_PROVIDERS_OIDC_LOGOUT_CLIENT_ID_QUERY_PARAMETER}
+      - LAKEFS_DATABASE_TYPE=postgres
+      - LAKEFS_DATABASE_POSTGRES_CONNECTION_STRING=postgres://lakefs:lakefs@postgres:5432/postgres?sslmode=disable
+      - LAKEFS_BLOCKSTORE_TYPE=local
+      - LAKEFS_BLOCKSTORE_LOCAL_PATH=/tmp/lakefs/data
+      - LAKEFS_BLOCKSTORE_LOCAL_IMPORT_ENABLED=true
+      - LAKEFS_FEATURES_LOCAL_RBAC=true
+    entrypoint: ["/app/wait-for", "postgres:5432", "--", "/app/lakefs", "run"]
+    configs:
+      - source: lakefs.yaml
+        target: /etc/lakefs/config.yaml
+  postgres:
+    image: "postgres:11"
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: lakefs
+      POSTGRES_PASSWORD: lakefs
+
+#This tweak is unfortunate but also necessary. logout_endpoint_query_parameters is a list
+#of strings which isn't parsed nicely as env vars.
+configs:
+  lakefs.yaml:
+    content: |
+      auth:
+        ui_config:
+          login_cookie_names:
+            - internal_auth_session
+            - oidc_auth_session
+        oidc:
+          # friendly_name_claim_name: "name"
+          default_initial_groups:
+            - Admins
+        providers:
+          oidc:
+            logout_endpoint_query_parameters:
+              - returnTo
+              - http://localhost:8000/oidc/login

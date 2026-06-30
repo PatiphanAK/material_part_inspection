@@ -1,4 +1,4 @@
-# Material Part Inspection - Experimental MLOps Pipeline
+# Material Part Inspection - ML Experimental
 
 This repository contains the experimental MLOps framework for the **Material Part Inspection** image classification project. It's designed as a portable, highly-repeatable research loop that runs identically whether you're on a local GPU workstation or a **Google Colab notebook/CLI**, integrating data versioning, experiment tracking, config management, pipeline reproducibility, and data drift monitoring.
 
@@ -12,8 +12,8 @@ The pipeline is environment-agnostic by design — all paths, device selection, 
 
 | Environment | Notes |
 |---|---|
-| **Local Workstation A/B** | 2x NVIDIA GeForce RTX 2080 (8GB VRAM each), CUDA 12/13 |
-| **Local Workstation C** | 1x NVIDIA GeForce RTX 3050 |
+| **Local Workstation Main** | 2x NVIDIA GeForce RTX 2080 (16GB VRAM each), CUDA 13 |
+| **Local Workstation C** | 1x NVIDIA GeForce RTX 3050 CUDA 13|
 | **Google Colab (CLI/notebook)** | Single GPU runtime (T4/A100 depending on tier), ephemeral disk — requires lakeFS for data persistence since `data/` is wiped on disconnect |
 
 Device selection, MLflow tracking URI, and lakeFS endpoint are all pulled from Hydra config (`conf/`), so switching environments is a one-line override, not a code change.
@@ -65,7 +65,8 @@ Device selection, MLflow tracking URI, and lakeFS endpoint are all pulled from H
    Logs parameters, training hyperparameters, runs, metrics, confusion matrices, and final weights to a **shared remote tracking server** (not localhost), so runs from different workstations and Colab sessions land in the same dashboard.
 5. **Evidently AI (Data & Model Drift Analysis):**
    Performs offline evaluations comparing training data against new validation/test sets — image quality metrics and feature embedding drift — to catch semantic drift before registering models.
-
+6. **GradCAM (Explainability)**
+   Generates class activation heatmaps to visualize which image regions contribute most to the model's predictions. Used to verify that the classifier focuses on the relevant defect area (e.g., burr) rather than irrelevant background features, supporting qualitative error analysis and model interpretability.
 ---
 
 ## 📂 Project Structure
