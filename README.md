@@ -66,44 +66,109 @@ Device selection, MLflow tracking URI, and lakeFS endpoint are all pulled from H
 5. **Evidently AI (Data & Model Drift Analysis):**
    Performs offline evaluations comparing training data against new validation/test sets — image quality metrics and feature embedding drift — to catch semantic drift before registering models.
 6. **GradCAM (Explainability)**
-   Generates class activation heatmaps to visualize which image regions contribute most to the model's predictions. Used to verify that the classifier focuses on the relevant defect area (e.g., burr) rather than irrelevant background features, supporting qualitative error analysis and model interpretability.
+   Generates class activation heatmaps to visualize which image regions contribute most to the model's predictions. Used to verify that the classifier focuses on the relevant defect area (e.g., burr) rather than irrelevant background features, supporting qualitative error analysis and model interpretability. Runs inside `src/evaluate.py` as part of the standalone evaluation step.
 ---
 
 ## 📂 Project Structure
 
 ```text
 part_inspection/
-├── .github/workflows/         # Basic pipeline/CI automation
-├── conf/                      # Hydra config root
-│   ├── config.yaml            # Top-level composition (defaults list)
-│   ├── env/
-│   │   ├── local_rtx2080.yaml # device=cuda:0/1, local lakeFS endpoint, local mlflow URI
-│   │   ├── local_rtx3050.yaml
-│   │   └── colab.yaml         # device=cuda:0, remote lakeFS+mlflow endpoints, /content paths
-│   ├── model/
-│   │   └── resnet50.yaml
-│   └── training/
-│       └── default.yaml       # epochs, batch_size, lr, seed, etc.
-├── data/                      # Local git-ignored, ephemeral on Colab
-│   ├── raw/                   # Synced from lakeFS branch at run start
-│   └── processed/             # Preprocessed images ready for training
-├── notebooks/                 # EDA + Colab entrypoint notebook
-│   └── colab_runner.ipynb     # Clones repo, installs deps, runs CLI with env=colab
-├── scripts/
-│   ├── setup_colab.sh         # One-shot Colab bootstrap (deps + lakeFS auth + mount)
-│   └── sync_lakefs.sh         # Shared shell helper for pulling a branch into data/raw
+├── agent.md                    # Agent brief: PyTorch + Hydra experimental scope
+├── main.py                     # Thin Hydra entrypoint — dispatches via mode= (no training logic)
+├── pyproject.toml              # uv-managed deps (torch, hydra-core, mlflow, grad-cam, evidently, ...)
+├── docker-compose.yaml         # lakeFS + MLflow services
+├── README.md
+│
+├── conf/                       # Hydra config root — every experiment is config-driven
+│   ├── config.yaml             # defaults list composes: mode + env + model + training + data
+│   ├── mode/
+│   │   ├── train.yaml          # mode=train    → runs src/training/trainer.py
+│   │   └── evaluate.yaml       # mode=evaluate → runs src/evaluate.py (GradCAM + drift)
+│   ├── env/                    # {local_rtx2080, local_rtx3050, colab}.yaml — device/paths/endpoints
+│   ├── model/                  # resnet50.yaml, mobilenetv3.yaml — binary head: 1 logit
+│   ├── training/               # default.yaml — epochs, batch_size, lr, seed, pos_weight
+│   └── data/                   # default.yaml — image size, augment strength, split ratios
+│
+├── data/                       # git-ignored; synced from lakeFS branch+commit
+│   ├── raw/                    # original images organized as ok/ and burr/
+│   └── processed/             # resized + normalized train/val/test splits
+│
 ├── src/
 │   ├── __init__.py
-│   ├── dataset.py             # PyTorch Dataset & DataLoader implementation
-│   ├── train.py                # Hydra-decorated entrypoint for training + MLflow logging
-│   ├── evaluate.py            # Evidently AI report generation
+│   ├── data/
+│   │   ├── dataset.py          # PyTorch Dataset, folder→label map: ok=0, burr=1
+│   │   └── transforms.py       # train/val/test transforms (augmentation on train only)
+│   ├── models/                 # NOTE: plural, per project convention
+│   │   └── model.py            # backbone builders + binary head (single output logit, NO softmax)
+│   ├── training/
+│   │   ├── trainer.py          # training loop ONLY (no eval logic) — MLflow logging, DDP
+│   │   └── losses.py           # BCEWithLogitsLoss + pos_weight for class imbalance
+│   ├── evaluate.py             # standalone: metrics + confusion matrix + GradCAM + Evidently drift
 │   └── utils/
-│       ├── lakefs_client.py   # lakeFS S3-compatible client, env-aware
-│       └── device.py          # Resolves torch.device from Hydra env config
-├── dvc.yaml                   # DVC Pipeline DAG, parameterized by conf/
-├── pyproject.toml             # Python dependencies and build system configuration
-└── README.md                  # Project documentation (this file)
+│       ├── config.py           # Hydra/Omegaconf helpers (resolve env, seed setup)
+│       ├── device.py           # torch.device resolution; multi-GPU/DDP device prep
+│       ├── lakefs_client.py    # S3-compatible lakeFS client, env-aware
+│       └── logger.py           # structured logging setup
+│
+├── scripts/                    # setup_colab.sh, sync_lakefs.sh (env bootstrap helpers)
+├── notebooks/                  # EDA + colab_runner.ipynb
+├── docs/
+│   └── experimental.md         # experimental design (already exists)
+├── assets/                     # figures (Figure 1, etc.)
+└── dvc.yaml                    # pipeline DAG: preprocess → train → evaluate(drift)
 ```
+
+### Single-entrypoint dispatch (`main.py` is the only entrypoint)
+
+`main.py` is intentionally thin — it contains **no training or evaluation logic**, only a dispatch on `cfg.mode.name` to the relevant module:
+
+```python
+# main.py
+import hydra
+from omegaconf import DictConfig
+
+@hydra.main(version_base=None, config_path="conf", config_name="config")
+def main(cfg: DictConfig):
+    if cfg.mode.name == "train":
+        from src.training.trainer import run_training
+        run_training(cfg)
+    elif cfg.mode.name == "evaluate":
+        from src.evaluate import run_evaluation
+        run_evaluation(cfg)
+    else:
+        raise ValueError(f"Unknown mode: {cfg.mode.name}")
+
+if __name__ == "__main__":
+    main()
+```
+
+```bash
+# Run an experiment end-to-end, zero code changes:
+python main.py mode=train    env=local_rtx2080 model=resnet50 training=default data=default
+python main.py mode=evaluate env=local_rtx2080 model=resnet50
+
+# One-line override of anything, on any machine:
+python main.py mode=train env=colab training.epochs=20 training.batch_size=16
+```
+
+### Binary-classification design (locked into the structure)
+
+| Concern | Realized in |
+|---|---|
+| Single output **logit**, no softmax/sigmoid in the model | `src/models/model.py` (1-neuron head) |
+| `BCEWithLogitsLoss` + `pos_weight` for class imbalance | `src/training/losses.py` (`pos_weight` from `conf/training/`) |
+| Label mapping `ok=0`, `burr=1` (declared once, in config) | `src/data/dataset.py` (map lives in `conf/data/`) |
+| Evaluation fully separated, never mixed into trainer | `src/evaluate.py` (trainer never imports it) |
+
+### System goals → where each is realized
+
+| Goal | Realized in |
+|---|---|
+| Reproducible (seed + lakeFS commit logged together) | `src/utils/config.py` + MLflow `log_param("lakefs_commit")` in `trainer.py` |
+| Fully config-driven, no code changes per experiment | `conf/` composition + `main.py` dispatch |
+| Multi-GPU training (PyTorch DDP) | `src/utils/device.py` (DDP world setup) + `src/training/trainer.py` |
+| lakeFS dataset versioning | `src/utils/lakefs_client.py` (env-aware endpoint) |
+| DVC pipeline integration | `dvc.yaml` stages invoke `main.py mode=...` |
 
 Key change from a single-machine layout: nothing in `src/` reads a hardcoded path, host, or device string — everything routes through `conf/env/*.yaml`. Adding a new machine (or a Colab Pro session with different disk paths) means adding one new env file, not touching pipeline code.
 
@@ -122,7 +187,7 @@ Key change from a single-machine layout: nothing in `src/` reads a hardcoded pat
 ```bash
 git clone https://github.com/your-org/part_inspection.git
 cd part_inspection
-pip install -r requirements.txt
+uv sync      # installs deps from pyproject.toml into a managed venv
 ```
 
 This pulls the exact dataset version from lakeFS, trains with the fixed seed, and logs everything (config, loss curve, eval metrics, confusion matrix, model weights) to MLflow — no manual bookkeeping required to reproduce a result.
@@ -130,8 +195,9 @@ This pulls the exact dataset version from lakeFS, trains with the fixed seed, an
 ### Option A — Local Workstation
 
 ```bash
-# Pick the env file matching this machine
-python src/train.py env=local_rtx2080 training=default model=resnet50
+# Pick the env file matching this machine (single entrypoint, mode= dispatches)
+python main.py mode=train    env=local_rtx2080 model=resnet50 training=default data=default
+python main.py mode=evaluate env=local_rtx2080 model=resnet50
 ```
 
 ### Option B — Google Colab (CLI-style)
@@ -143,10 +209,10 @@ Run from a Colab cell (or `!` CLI in a notebook):
 %cd part_inspection
 !bash scripts/setup_colab.sh        # installs deps, configures lakeFS creds from Colab secrets
 
-!python src/train.py env=colab training=default model=resnet50
+!python main.py mode=train env=colab model=resnet50 training=default data=default
 ```
 
-`scripts/setup_colab.sh` handles the parts that differ on Colab: installing `requirements.txt` into the ephemeral runtime, pulling lakeFS credentials from `google.colab.userdata` instead of a local `.env`, and pointing the MLflow tracking URI at the shared remote server so the run shows up alongside local runs.
+`scripts/setup_colab.sh` handles the parts that differ on Colab: installing dependencies into the ephemeral runtime, pulling lakeFS credentials from `google.colab.userdata` instead of a local `.env`, and pointing the MLflow tracking URI at the shared remote server so the run shows up alongside local runs.
 
 *Verifying GPU in either environment:*
 ```python
@@ -192,10 +258,42 @@ response = s3.list_objects_v2(Bucket=bucket_name, Prefix=f"{branch}/data/raw/")
 ```yaml
 # conf/config.yaml
 defaults:
+  - mode: train              # train | evaluate
   - env: local_rtx2080
   - model: resnet50
   - training: default
+  - data: default
   - _self_
+
+hydra:
+  job:
+    chdir: false             # keep relative DVC out: paths stable
+```
+
+```yaml
+# conf/mode/train.yaml
+name: train
+# routes main.py → src/training/trainer.py
+```
+
+```yaml
+# conf/mode/evaluate.yaml
+name: evaluate
+# routes main.py → src/evaluate.py (GradCAM + Evidently drift)
+```
+
+```yaml
+# conf/data/default.yaml
+image_size: 224
+label_map:                   # declared once, in config — ok=0, burr=1
+  ok: 0
+  burr: 1
+split:
+  train: 0.7
+  val: 0.15
+  test: 0.15
+augment:
+  strength: 1.0              # flip/rotate/color jitter scale (train split only)
 ```
 
 ```yaml
@@ -208,7 +306,7 @@ mlflow_tracking_uri: ${oc.env:MLFLOW_TRACKING_URI}
 
 Override anything at the CLI without touching files:
 ```bash
-python src/train.py env=colab training.epochs=20 training.batch_size=16
+python main.py mode=train env=colab training.epochs=20 training.batch_size=16
 ```
 
 ### Step 3: Reproducible Pipeline Orchestration with DVC
@@ -217,18 +315,19 @@ python src/train.py env=colab training.epochs=20 training.batch_size=16
 # dvc.yaml
 stages:
   preprocess:
-    cmd: python src/dataset.py --config-name config env=${env}
+    cmd: python main.py mode=train env=${env} data=default data.only_preprocess=true
     deps:
-      - src/dataset.py
+      - src/data
       - conf/env/${env}.yaml
+      - conf/data/default.yaml
     outs:
       - data/processed
 
   train:
-    cmd: python src/train.py env=${env} training=default model=resnet50
+    cmd: python main.py mode=train env=${env} model=resnet50 training=default data=default
     deps:
       - data/processed
-      - src/train.py
+      - src/training/trainer.py
       - conf/training/default.yaml
       - conf/model/resnet50.yaml
     outs:
@@ -237,8 +336,8 @@ stages:
       - metrics.json:
           cache: false
 
-  drift_analysis:
-    cmd: python src/evaluate.py --reference data/processed --current data/new_batch
+  evaluate:
+    cmd: python main.py mode=evaluate env=${env} model=resnet50
     deps:
       - data/processed
       - outputs/model.pt
@@ -246,74 +345,76 @@ stages:
     outs:
       - reports/drift_report.html:
           cache: false
+      - reports/gradcam:
+          cache: false
 ```
 
-Run via `dvc repro` — `${env}` is a DVC param so the same `dvc.yaml` reproduces correctly whether `env` resolves to `local_rtx2080` or `colab`.
+Run via `dvc repro` — `${env}` is a DVC param so the same `dvc.yaml` reproduces correctly whether `env` resolves to `local_rtx2080` or `colab`. The single `main.py` entrypoint drives every stage; `mode=` selects the code path.
 
 ### Step 4: Experiment Tracking with MLflow (shared server)
 
 ```python
-# src/train.py
-import hydra
+# src/training/trainer.py — training loop ONLY (no eval logic here)
 import mlflow
 import mlflow.pytorch
 import torch
+from torch.utils.data import DataLoader
 from omegaconf import DictConfig
-from sklearn.metrics import precision_recall_fscore_support, accuracy_score, confusion_matrix
-import matplotlib.pyplot as plt
 
-def set_seed(seed: int):
-    import random, numpy as np
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+from src.utils.config import set_seed
+from src.utils.device import resolve_device, setup_ddp
+from src.utils.lakefs_client import resolve_dataset_commit
+from src.training.losses import build_criterion
+from src.models.model import build_model
+from src.data.dataset import build_loaders
 
-@hydra.main(version_base=None, config_path="../conf", config_name="config")
-def main(cfg: DictConfig):
+
+def run_training(cfg: DictConfig):  # called from main.py when mode=train
     set_seed(cfg.training.seed)
-    mlflow.set_tracking_uri(cfg.env.mlflow_tracking_uri)  # shared remote, not localhost
+    mlflow.set_tracking_uri(cfg.env.mlflow_tracking_uri)   # shared remote, not localhost
     mlflow.set_experiment("Part_Inspection_Defect_Classification")
 
-    device = torch.device(cfg.env.device if torch.cuda.is_available() else "cpu")
+    device, local_rank, world_size = setup_ddp(cfg)        # multi-GPU when available
+    model = build_model(cfg).to(device)
+    criterion = build_criterion(cfg)                       # BCEWithLogitsLoss(pos_weight=...)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.training.lr)
+    train_loader, val_loader = build_loaders(cfg)
 
     with mlflow.start_run() as run:
         # Config + exact dataset version, so the run is fully reproducible/citable
+        mlflow.log_param("mode", cfg.mode.name)
         mlflow.log_param("seed", cfg.training.seed)
         mlflow.log_param("environment", cfg.env.name)
         mlflow.log_param("architecture", cfg.model.architecture)
         mlflow.log_param("batch_size", cfg.training.batch_size)
-        mlflow.log_param("lakefs_commit", cfg.env.lakefs_commit)  # exact data version used
+        mlflow.log_param("pos_weight", cfg.training.pos_weight)
+        mlflow.log_param("lakefs_commit", resolve_dataset_commit(cfg))  # exact data version used
 
         for epoch in range(cfg.training.epochs):
-            train_loss = run_train_epoch(...)   # your training loop
-            val_loss, val_acc = run_val_epoch(...)
+            train_loss = run_train_epoch(model, train_loader, criterion, optimizer, device)
+            val_loss, val_acc = run_val_epoch(model, val_loader, criterion, device)
             # this is what becomes the loss curve in MLflow's UI automatically
             mlflow.log_metric("train_loss", train_loss, step=epoch)
             mlflow.log_metric("val_loss", val_loss, step=epoch)
             mlflow.log_metric("val_accuracy", val_acc, step=epoch)
 
-        # Final evaluation on held-out test set
-        y_true, y_pred = run_test_inference(...)
-        acc = accuracy_score(y_true, y_pred)
-        precision, recall, f1, _ = precision_recall_fscore_support(y_true, y_pred, average="macro")
-        mlflow.log_metric("test_accuracy", acc)
-        mlflow.log_metric("test_precision", precision)
-        mlflow.log_metric("test_recall", recall)
-        mlflow.log_metric("test_f1", f1)
-
-        cm = confusion_matrix(y_true, y_pred)
-        fig, ax = plt.subplots()
-        ax.imshow(cm)
-        ax.set_title("Confusion Matrix")
-        fig.savefig("confusion_matrix.png")
-        mlflow.log_artifact("confusion_matrix.png")
-
+        # NOTE: final test-set metrics + confusion matrix live in src/evaluate.py,
+        #       never in the trainer. Trainer only persists weights.
         mlflow.pytorch.log_model(model, "model")
         print(f"Logged run successfully to MLflow: {run.info.run_id}")
+```
 
-if __name__ == "__main__":
-    main()
+```python
+# src/training/losses.py — binary loss with class-imbalance handling
+import torch
+from torch import nn
+from omegaconf import DictConfig
+
+def build_criterion(cfg: DictConfig) -> nn.Module:
+    # Binary classification: single logit in, BCEWithLogitsLoss applies sigmoid internally.
+    # pos_weight up-weights the rare burr class (label=1); value comes from conf/training/.
+    pos_weight = torch.tensor([cfg.training.pos_weight], dtype=torch.float32)
+    return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 ```
 
 > Logging `seed` and `lakefs_commit` together means anyone (including future-you writing the paper) can reconstruct exactly what data + config produced this run. The loss curve comes for free from per-epoch `log_metric` calls — MLflow's UI plots `train_loss`/`val_loss` over `step` automatically, no extra charting needed.
@@ -327,31 +428,62 @@ Because `mlflow_tracking_uri` now points at a shared server instead of `http://l
 mlflow ui --port 5000 --backend-store-uri <shared-store>
 ```
 
-### Step 5: Data & Model Drift with Evidently AI
+### Step 5: Evaluation, GradCAM & Drift with Evidently AI
+
+`src/evaluate.py` is **fully standalone** — the trainer never imports or calls it. It owns the test-set metrics, the confusion matrix, GradCAM explainability heatmaps, and the Evidently drift report. It is invoked through the same single entrypoint: `python main.py mode=evaluate ...`.
 
 ```python
-# src/evaluate.py
+# src/evaluate.py — standalone; called from main.py when mode=evaluate
 import pandas as pd
-from evidently.report import Report
-from evidently.metric_preset import DataDriftPreset, DataQualityPreset
+import matplotlib.pyplot as plt
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score, confusion_matrix
+from omegaconf import DictConfig
 
-ref_data = pd.read_csv("data/processed/metadata_embeddings.csv")
-current_data = pd.read_csv("data/new_batch/metadata_embeddings.csv")
+from src.models.model import build_model
+from src.utils.device import resolve_device
+from src.utils.lakefs_client import resolve_dataset_commit
 
-data_drift_report = Report(metrics=[DataQualityPreset(), DataDriftPreset()])
-data_drift_report.run(reference_data=ref_data, current_data=current_data)
-data_drift_report.save_html("reports/drift_report.html")
-print("Data Drift report generated successfully at reports/drift_report.html")
+
+def run_evaluation(cfg: DictConfig):
+    device = resolve_device(cfg)
+    model = build_model(cfg).to(device).eval()
+
+    y_true, y_pred = run_test_inference(model, cfg, device)  # threshold logit @ 0.5 → {0=ok, 1=burr}
+
+    # --- Metrics (binary) ---
+    acc = accuracy_score(y_true, y_pred)
+    precision, recall, f1, _ = precision_recall_fscore_support(y_true, y_pred, average="binary")
+    print(f"test_accuracy={acc}  precision={precision}  recall={recall}  f1={f1}")
+
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])   # rows=ok/burr order per conf/data label_map
+    fig, ax = plt.subplots()
+    ax.imshow(cm); ax.set_title("Confusion Matrix (ok=0, burr=1)")
+    fig.savefig("reports/confusion_matrix.png")
+
+    # --- GradCAM: verify the model focuses on the burr region, not background ---
+    generate_gradcam(model, cfg, device, out_dir="reports/gradcam")
+
+    # --- Evidently drift report (training embeddings vs. new batch embeddings) ---
+    import pandas as pd
+    from evidently.report import Report
+    from evidently.metric_preset import DataDriftPreset, DataQualityPreset
+
+    ref_data = pd.read_csv("data/processed/metadata_embeddings.csv")
+    current_data = pd.read_csv("data/new_batch/metadata_embeddings.csv")
+    drift = Report(metrics=[DataQualityPreset(), DataDriftPreset()])
+    drift.run(reference_data=ref_data, current_data=current_data)
+    drift.save_html("reports/drift_report.html")
+    print("Evaluation complete: reports/confusion_matrix.png, reports/gradcam/, reports/drift_report.html")
 ```
 
-Open `reports/drift_report.html` in your browser to inspect visual and statistical shifts in image features.
+Open `reports/drift_report.html` in your browser to inspect visual and statistical shifts in image features, and `reports/gradcam/` for the class-activation heatmaps that confirm the classifier is attending to the defect region.
 
 ---
 
 ## 🔄 The Experimental Lifecycle (Developer Checklist)
 
 1. 📂 **lakeFS:** Branch out `lakectl branch create lakefs://part-inspection/experiment-batch-X`.
-2. ⚙️ **Hydra:** Pick or override `env=` for the machine you're on (`local_rtx2080`, `local_rtx3050`, `colab`).
+2. ⚙️ **Hydra:** Pick or override `env=` for the machine you're on (`local_rtx2080`, `local_rtx3050`, `colab`), and `mode=` (`train`/`evaluate`).
 3. 🔄 **DVC:** Sync images into `data/raw/` and trigger `dvc repro`.
-4. 🧪 **MLflow:** Train models — multi-GPU via PyTorch DDP locally, single-GPU on Colab — all logged to the shared tracking server.
-5. 📈 **Evidently AI:** Run `src/evaluate.py` to check image quality and embedding drift. If representative, merge the lakeFS branch back to `main`.
+4. 🧪 **MLflow:** Train models — `python main.py mode=train ...` — multi-GPU via PyTorch DDP locally, single-GPU on Colab, all logged to the shared tracking server.
+5. 📈 **Evaluate:** Run `python main.py mode=evaluate ...` (drift via Evidently, explainability via GradCAM). If the new batch is representative, merge the lakeFS branch back to `main`.
